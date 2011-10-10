@@ -45,11 +45,22 @@ CHI::Driver::Ping - Cache data in the Ether.
 
 Tap into the Ether.  Optimize for CPU or storage?  Fuck that.
 
+Inspired by Delay Line Memory, L<http://en.wikipedia.org/wiki/Delay_line_memory>, 
+this modules stores data by transmitting it through a medium known to have a
+delay and waiting for it to come back again, whereupon it both returns it and
+retransmits it out.
+It seems rather pointless and silly to bother with spinning metal oxide 
+covered platters or billions of tiny capacitors when data can be stored
+in the air between the Earth and sattelites, in ordinary copper wire, 
+and in easy to extrude lengths of glass fiber.
+
 =head1 ATTRIBUTES
 
 =over
 
 =item ip
+
+Who to send all of the ICMP ECHOPINGs to.
 
 =item namespace
 
@@ -61,20 +72,21 @@ the cache will be stored in a table called C<chi_Default>.
 
 =head1 TODO
 
-CIDR block of hosts to use, or a list, or something.
+CIDR block of hosts to use, or a list, or something.  Even better, scan the network
+for hosts that are up and build this dynamically.  For extra points, find hosts with
+a lot of hops to them.
 
 =head1 BUGS
 
 =item 0.00000001
 
-Initial
-
-# Huh, turns out that I was developing against L<CHI> 0.36.  Running tests with 0.42 shows me 31 failing tests.
+Initial; github dev version.
 
 
 =head1 Authors
 
-L<CHI::Driver::Ping> by Scott Walters (scott@slowass.net).
+L<CHI::Driver::Ping> by Scott Walters (scott@slowass.net) with suggestions from 
+Brock Wilcox (awwaiid@thelackthereof.org).
 
 =head1 COPYRIGHT & LICENSE
 
@@ -147,9 +159,9 @@ sub store {
 
   $self->seq( ( $self->seq() + 1) % 65536 );   # Increment sequence
   my $checksum = 0; 
-  $msg = pack( ICMP_STRUCT . length( $data ), ICMP_ECHO, SUBCODE, $checksum, $self->{"pid"}, $self->{"seq"}, $data );
+  $msg = pack( ICMP_STRUCT . length( $data ), ICMP_ECHO, SUBCODE, $checksum, $self->pid, $self->seq, $data );
   $checksum = $self->checksum($msg);
-  $msg = pack( ICMP_STRUCT . length( $data ), ICMP_ECHO, SUBCODE, $checksum, $self->{"pid"}, $self->{"seq"}, $data );
+  $msg = pack( ICMP_STRUCT . length( $data ), ICMP_ECHO, SUBCODE, $checksum, $self->pid, $self->seq, $data );
   $len_msg = length($msg);
   $saddr = sockaddr_in(ICMP_PORT, inet_aton( $self->ip ) );
   send($self->fh, $msg, ICMP_FLAGS, $saddr); # Send the message
@@ -161,7 +173,9 @@ sub fetch {
 
   my $self = shift;
   my $key = shift;
-  my $delete_mode = shift;
+  my $mode = shift;
+
+  my $delete_mode = 1 if $mode eq 'delete';  # don't retransmit this packet once we see it
 
   my $ret = 0;
 
@@ -172,6 +186,7 @@ sub fetch {
   my $return_value;
 
   while(1) {
+      return if Time::HiRes::time - $start_time > 2; # <------ here is also where we exit, in failure
       my $recv_msg = "";
       my $from_pid = -1;
       my $from_seq = -1;
@@ -199,7 +214,6 @@ sub fetch {
 # return ($key, $value); # XXXX
           }
       }
-      return if Time::HiRes::time - $start_time > 2; # <------ here is also where we exit, in failure
     }
 }
 
