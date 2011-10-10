@@ -157,15 +157,18 @@ sub store {
 
 sub fetch {
 
+  local $SIG{USR1} = sub { use Carp; Carp::cluck "USR1"; };
+
   my $self = shift;
   my $key = shift;
   my $delete_mode = shift;
 
   my $ret = 0;
-  my $elapsed_time = 0;
 
   fcntl($self->fh, F_SETFL, fcntl($self->fh, F_GETFL, 0) | O_NONBLOCK) or die "fcntl: $!";
 
+  my $start_time = Time::HiRes::time;
+# warn "start_time $start_time";
   my $return_value;
 
   while(1) {
@@ -174,11 +177,7 @@ sub fetch {
       my $from_seq = -1;
       my $from_saddr = recv($self->fh, $recv_msg, 1500, ICMP_FLAGS); # sockaddr_in of sender
       if( $! == Errno::EAGAIN ) {
-          if( $elapsed_time > 1 ) {
-              return; # tired of repeating packets, not in the cache, fell out of the cache, or we've stopped caring
-          }
           Time::HiRes::sleep(0.1);
-          $elapsed_time += 0.1;
           next;
       }
       my $from_port;         # Port packet was sent from
@@ -200,9 +199,8 @@ sub fetch {
 # return ($key, $value); # XXXX
           }
       }
+      return if Time::HiRes::time - $start_time > 2; # <------ here is also where we exit, in failure
     }
-    # return $return_value;
-
 }
 
 sub checksum {
