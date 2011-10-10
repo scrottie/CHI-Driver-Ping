@@ -30,50 +30,26 @@ use constant ICMP_PORT        => 0; # No port with ICMP
 
 =head1 NAME
 
-CHI::Driver::Ping - Use DBI for cache storage, but access it using the Net::Ping API for MySQL
+CHI::Driver::Ping - Cache data in the Ether.
+
 
 =head1 SYNOPSIS
 
  use CHI;
 
- # Supply a DBI handle
+ system 'sysctl', '-w', 'net.ipv4.icmp_ratelimit=100000';
 
- my $cache = CHI->new( driver => 'Ping', dbh => DBI->connect(...) );
-
-B<ATTENTION>:  This module inherits tests from L<CHI> but I<may> not pass all of L<CHI>'s tests.  
-Also, no real functional tests will run unless installed manually as L<cpanm> surpresses prompts for database login information 
-for a MySQL database to test against.
+ my $cache = CHI->new( driver => 'Ping', ip => 74.125.73.105 );
 
 =head1 DESCRIPTION
 
-This driver uses a MySQL database table to store the cache.  
-It accesses it by way of the Net::Ping API and associated MySQL plug-in:
-
-L<http://yoshinorimatsunobu.blogspot.com/2010/10/using-mysql-as-nosql-story-for.html>
-
-L<https://github.com/ahiguti/Ping-Plugin-for-MySQL>
-
-Why cache things in a database?  Isn't the database what people are trying to
-avoid with caches?  
-
-This is often true, but a simple primary key lookup is extremely fast in MySQL and Ping absolutely screams,
-avoiding most of the locking that normally happens and completing as many updates/queries as it can at once under the same lock.
-Avoiding parsing SQL is also a huge performance boost.
+Tap into the Ether.  Optimize for CPU or storage?  Fuck that.
 
 =head1 ATTRIBUTES
 
 =over
 
-=item host
-
-=item read_port
-
-=item write_port
-
-Host and port the MySQL server with the SocketHandler plugin is running on.  The connection is TCP.
-Two connections are used, one for reading, one for writing, following the design of L<Net::Ping>.
-The write port locks the table even for reads, reportedly.
-Default is C<localhost>, C<9998>, and C<9999>.
+=item ip
 
 =item namespace
 
@@ -81,61 +57,19 @@ The namespace you pass in will be appended to the C<table_prefix> and used as a
 table name.  That means that if you don't specify a namespace or table_prefix
 the cache will be stored in a table called C<chi_Default>.
 
-=item table_prefix
-
-This is the prefix that is used when building a table name.  If you want to
-just use the namespace as a literal table name, set this to undef.  Defaults to
-C<chi_>.
-
-=item dbh
-
-The DBI handle used to communicate with the db. 
-
-You may pass this handle in one of three forms:
-
-=over
-
-=item *
-
-a regular DBI handle
-
-=item *
-
-a L<DBIx::Connector|DBIx::Connector> object
-
-XXXX doesn't work
-
-=item *
-
-a code reference that will be called each time and is expected to return a DBI
-handle, e.g.
-
-    sub { My::Rose::DB->new->dbh }
-
-XXXX doesn't work
-
 =back
 
-The last two options are valuable if your CHI object is going to live for
-enough time that a single DBI handle might time out, etc.
+=head1 TODO
+
+CIDR block of hosts to use, or a list, or something.
 
 =head1 BUGS
 
-=item 0.9
+=item 0.00000001
 
-C<t/00load.t> still referenced L<CHI::Handler::DBI> and would fail if it you didn't have it installed.  Fixed in 0.991.
+Initial
 
-Tests will fail with a message about no tests run unless you run the install manuaully and give it valid DB login info.
-Inserted a dummy C<ok()> in there in 0.991.
-
-Should have been specifying CHARSET=ASCII in the create statement to avoid L<http://bugs.mysql.com/bug.php?id=4541>, where utf-8 characters count triple or quadruple or whatever.
-Fixed, dubiously, in 0.991.
-
-Huh, turns out that I was developing against L<CHI> 0.36.  Running tests with 0.42 shows me 31 failing tests.
-
-=item 0.991
-
-The database table name was computed from the argument for C<namespace>, but no sanitizing is done on it.  Fixed in 0.992.
+# Huh, turns out that I was developing against L<CHI> 0.36.  Running tests with 0.42 shows me 31 failing tests.
 
 
 =head1 Authors
@@ -225,6 +159,7 @@ sub fetch {
 
   my $self = shift;
   my $key = shift;
+  my $delete_mode = shift;
 
   my $ret = 0;
   my $elapsed_time = 0;
@@ -239,7 +174,7 @@ sub fetch {
       my $from_seq = -1;
       my $from_saddr = recv($self->fh, $recv_msg, 1500, ICMP_FLAGS); # sockaddr_in of sender
       if( $! == Errno::EAGAIN ) {
-          if( $elapsed_time > 2 ) {
+          if( $elapsed_time > 1 ) {
               return; # tired of repeating packets, not in the cache, fell out of the cache, or we've stopped caring
           }
           Time::HiRes::sleep(0.1);
@@ -259,31 +194,15 @@ sub fetch {
               my $key2 = substr $recv_msg, 0, $i;
               my $value = substr $recv_msg, $i+1;
               $return_value = $value if $key eq $key2;  # don't return yet but remember what to return
-              $self->store($key2, $value); 
+              $self->store($key2, $value) unless $delete_mode; 
+              return $return_value if $key eq $key2; # <---------- here is where we exit this
 # warn "found it: $value";
 # return ($key, $value); # XXXX
           }
-      } elsif( length $recv_msg ) {
-        ($from_pid, $from_seq) = unpack("n3", substr($recv_msg, 52, 4)) if length $recv_msg >= 56;
-# warn "got not a non ICMP reply";
-        next;
-      } else {
-# warn "no data but that's okay";
-          last;
       }
-      # $self->{"from_ip"} = $from_ip;
-      # $self->{"from_type"} = $from_type;
-      # $self->{"from_subcode"} = $from_subcode;
-      # if (($from_pid == $self->{"pid"}) && # Does the packet check out?
-      #     (! $source_verify || (inet_ntoa($from_ip) eq inet_ntoa($ip))) &&
-      #     ($from_seq == $self->{"seq"})) {
-      #   if ($from_type == ICMP_ECHOREPLY) {
-      #     $ret = 1;
-# XXXX
-      #   }
-      # }
     }
-    return $return_value;
+    # return $return_value;
+
 }
 
 sub checksum {
