@@ -64,9 +64,7 @@ Who to send all of the ICMP ECHOPINGs to.
 
 =item namespace
 
-The namespace you pass in will be appended to the C<table_prefix> and used as a
-table name.  That means that if you don't specify a namespace or table_prefix
-the cache will be stored in a table called C<chi_Default>.
+Not currently used (XXX).
 
 =back
 
@@ -75,6 +73,12 @@ the cache will be stored in a table called C<chi_Default>.
 CIDR block of hosts to use, or a list, or something.  Even better, scan the network
 for hosts that are up and build this dynamically.  For extra points, find hosts with
 a lot of hops to them.
+
+namespace. XXX.
+
+delete. XXX.
+
+purge. XXX.
 
 =head1 BUGS
 
